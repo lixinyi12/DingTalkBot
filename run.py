@@ -10,6 +10,9 @@ import json
 from function import *
 from lxml import etree
 
+# 检测时间窗口（秒），默认两小时=7200，可在文件顶部统一修改
+WINDOW = 7200
+
 
 def sent_message(
         token: str,
@@ -55,6 +58,11 @@ if __name__ == "__main__":
             bili_subscribe = True
         except BaseException:
             bili_subscribe = False
+        try:
+            book_ids = sys.argv[4]
+            fanqie_subscribe = True
+        except BaseException:
+            fanqie_subscribe = False
         China_stp = int(time.time())  # action获取的系统时间突然变成了utc+8，原因不明
         # 小刀网线报处理
         datas = get_message()
@@ -67,8 +75,8 @@ if __name__ == "__main__":
                 timeArray = time.strptime(date + ":00", "%Y-%m-%d %H:%M:%S")
                 timestamp = time.mktime(timeArray)
                 ac_time = China_stp - timestamp + 28800
-                # 默认时间频率为两小时，单位秒即7200，可以根据自己需求更改。
-                if ac_time < 7200:
+                # 默认时间频率为两小时，可在文件顶部 WINDOW 处统一修改。
+                if ac_time < WINDOW:
                     sent_message(
                         token=token,
                         secret=secret,
@@ -88,7 +96,7 @@ if __name__ == "__main__":
                 video_list = get_video(i)
                 for j in video_list:
                     ac_time = China_stp - j['created']
-                    if ac_time < 7200:
+                    if ac_time < WINDOW:
                         import datetime
                         dateArray = datetime.datetime.fromtimestamp(
                             j['created'] + 28800)
@@ -116,5 +124,40 @@ if __name__ == "__main__":
                         break
         else:
             pass
+        # 番茄小说更新处理
+        if fanqie_subscribe:
+            for book_id in book_ids.split(','):
+                book_id = book_id.strip()
+                if not book_id:
+                    continue
+                try:
+                    meta = get_fanqie_meta(book_id)
+                    chapters = get_fanqie_chapters(book_id)
+                    for ch in chapters:
+                        ac_time = China_stp - ch["firstPassTime"]
+                        if ac_time < WINDOW:
+                            import datetime
+                            dateArray = datetime.datetime.fromtimestamp(
+                                ch["firstPassTime"] + 28800)
+                            otherStyleTime = dateArray.strftime("%m-%d %H:%M")
+                            sent_message(
+                                token=token,
+                                secret=secret,
+                                text="{}    更新于 {}".format(
+                                    meta["author"], otherStyleTime),
+                                title="《{}》{}".format(
+                                    meta["book_name"], ch["title"]),
+                                picUrl=meta["cover"] or "",
+                                messageUrl="https://fanqienovel.com/reader/{}".format(
+                                    ch["itemId"]))
+                            print(
+                                "log:",
+                                meta["book_name"],
+                                ch["title"],
+                                "\n")
+                        else:
+                            break
+                except BaseException:
+                    print("error fanqie:", book_id, "\n")
     except BaseException:
         print('secret loss')
