@@ -55,12 +55,12 @@ if __name__ == "__main__":
         try:
             mids = sys.argv[3]
             # mids = mids
-            bili_subscribe = True
+            bili_subscribe = bool(mids.strip())  # 空值则跳过 bilibili
         except BaseException:
             bili_subscribe = False
         try:
             book_ids = sys.argv[4]
-            fanqie_subscribe = True
+            fanqie_subscribe = bool(book_ids.strip())  # 空值则跳过番茄
         except BaseException:
             fanqie_subscribe = False
         China_stp = int(time.time())  # action获取的系统时间突然变成了utc+8，原因不明
@@ -93,6 +93,8 @@ if __name__ == "__main__":
         if bili_subscribe:
             mid_list = mids.split(',')
             for i in mid_list:
+                if not i.strip():
+                    continue
                 video_list = get_video(i)
                 for j in video_list:
                     ac_time = China_stp - j['created']
