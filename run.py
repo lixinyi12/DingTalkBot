@@ -10,8 +10,8 @@ import json
 from function import *
 from lxml import etree
 
-# 检测时间窗口（秒），默认两小时=7200，可在文件顶部统一修改
-WINDOW = 7200
+# 检测时间窗口（秒），默认半小时=1800，可在文件顶部统一修改
+WINDOW = 1800
 
 
 def sent_message(

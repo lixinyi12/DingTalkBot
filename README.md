@@ -12,7 +12,7 @@
 4. 点击star开始执行Action（第一次star之后就会自动定时运行）
 ## 其他
 本项目的Action任务参考借鉴于[WakeLeanCloud](https://github.com/blogimg/WakeLeanCloud)  
-**目前支持：小刀网线报推送、bilibili的up主投稿推送、番茄小说章节更新推送，监测间隔默认两小时**。  
+**目前支持：小刀网线报推送、bilibili的up主投稿推送、番茄小说章节更新推送，监测间隔默认半小时**。
 如果有其他想要实现的功能可以提个issue。  
 如果想要更改检测频率请自行修改yml里的corn表达式，详细见[修改时间间隔](#修改时间间隔)。  
 执行日志目前仅在action任务中有显示，如果有需要的话可以像WakeLeanCloud一样在仓库添加log文件(提个issue吧)。 
@@ -20,11 +20,11 @@
 1. 打开番茄小说官网（fanqienovel.com），找到想订阅的小说并进入书页。
 2. 书页 URL 形如 `https://fanqienovel.com/page/7143038691944959011`，末尾这串数字就是 bookId。
 3. 在 Fork 仓库的 Secrets 里新增 `book_ids`，填入一个或多个 bookId，用英文逗号分隔（例如 `7143038691944959011,70xxxxxxxx`）。
-4. 下次定时任务运行时，若这些书在最近两小时内更新了章节，就会推送一张章节卡片（书名+章节标题+阅读链接）到钉钉。
+4. 下次定时任务运行时，若这些书在最近半小时内更新了章节，就会推送一张章节卡片（书名+章节标题+阅读链接）到钉钉。
 
 ## 修改时间间隔
 首先修改 /.github/workflows/DingTalk_misson.yml 文件中的cron表达式，具体语法说明可以参考[官方文档](https://docs.github.com/en/actions/reference/events-that-trigger-workflows#scheduled-events)，如果需要测试可以使用官方提供的测试网站[crontab guru](https://crontab.guru/)  
-然后修改 run.py 文件，将 if ac_time<7200 : 中的7200修改为其他时间间隔数值，请注意单位为秒。  
+然后修改 run.py 文件，将文件顶部的 WINDOW = 1800 修改为其他时间间隔数值，请注意单位为秒。
 未来或许会优化代码将它统一到yml中修改。
 
 ## 未来
