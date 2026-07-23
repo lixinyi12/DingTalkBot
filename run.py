@@ -82,6 +82,9 @@ if __name__ == "__main__":
         except BaseException:
             stock_watchlist = watchlist  # 来自 config import *，本地默认自选股
         stock_subscribe = bool((stock_watchlist or "").strip())  # 空值则跳过选股
+        print("log:订阅开关 bili={} fanqie={} stock={} ; mids长度={} book_ids长度={}".format(
+            bili_subscribe, fanqie_subscribe, stock_subscribe,
+            len(mids or ""), len(book_ids or "")))
         China_stp = int(time.time())  # action获取的系统时间突然变成了utc+8，原因不明
         # 小刀网线报处理
         datas = get_message()
