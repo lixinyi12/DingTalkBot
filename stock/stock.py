@@ -80,6 +80,18 @@ def _rsi(closes, period=RSI_PERIOD):
     return round(100 - 100 / (1 + rs), 2)
 
 
+def _retry_until_ok(fn, *args, initial_delay=3, max_delay=60, **kwargs):
+    """持续重试直到成功，指数退避。用于应对上游 502/连接断开。"""
+    delay = initial_delay
+    while True:
+        try:
+            return fn(*args, **kwargs)
+        except BaseException as e:
+            print("retry: {} ({}s后重试)".format(e, delay))
+            time.sleep(delay)
+            delay = min(delay * 2, max_delay)
+
+
 def _retry(fn, *args, delays=(2.4, 3.6), **kwargs):
     """调用 fn，失败按 delays(秒)逐次退避重试；尝试次数 = len(delays)+1。
     用于缓解东财偶发的连接重置/限流（尤其日K线接口）。"""
@@ -138,19 +150,15 @@ def _fetch_fundamentals(codes):
 
 
 def _fetch_valuation(codes):
-    """逐只取估值：PE、PB、股票名称。
-    不调批量接口(内部多线程并发易触发反爬)，改为逐只串行请求。"""
+    """逐只取估值：PE、PB、股票名称。502 时持续重试直到成功。"""
     out = {}
     if not codes:
         return out
     for i, code in enumerate(codes):
+        if i > 0:
+            time.sleep(REQUEST_INTERVAL)
         try:
-            if i > 0:
-                time.sleep(REQUEST_INTERVAL)
-            s = _retry(ef.stock.get_base_info, code, delays=(5, 15))
-            if s is None:
-                print("error valuation[{}]: 重试耗尽".format(code))
-                continue
+            s = _retry_until_ok(ef.stock.get_base_info, code)
             out[str(s['股票代码'])] = {
                 'pe': _to_float(s.get('市盈率(动)')),
                 'pb': _to_float(s.get('市净率')),
@@ -163,9 +171,9 @@ def _fetch_valuation(codes):
 
 
 def _fetch_capital(code):
-    """取资金面：当日主力净流入占比 + 近5日连续净流入天数。"""
+    """取资金面：当日主力净流入占比 + 近5日连续净流入天数。502 时持续重试。"""
     try:
-        df = _retry(ef.stock.get_history_bill, code)
+        df = _retry_until_ok(ef.stock.get_history_bill, code)
         if df is None or len(df) == 0:
             return {}
         df = df.sort_values(by='日期')  # 升序，便于取最近 N 日
@@ -187,12 +195,12 @@ def _fetch_capital(code):
 
 def _fetch_technical(code):
     """取技术面：收盘价、是否站上60日均线、均线方向、RSI14、涨跌幅。
-    日K线接口(push2his)是东财限流重灾区，故调用前留间隔、失败用长退避重试。"""
+    502 时持续重试直到成功。"""
     try:
-        time.sleep(KLINE_INTERVAL)  # 与上一笔资金面请求拉开间隔，降低被限流概率
+        time.sleep(KLINE_INTERVAL)
         beg = (datetime.date.today() - datetime.timedelta(days=200)).strftime('%Y%m%d')
-        df = _retry(ef.stock.get_quote_history, code, beg=beg, klt=101, fqt=1,
-                    delays=(5, 12, 20))
+        df = _retry_until_ok(
+            ef.stock.get_quote_history, code, beg=beg, klt=101, fqt=1)
         if df is None or len(df) == 0:
             return {}
         closes = [_to_float(x) for x in df['收盘'].tolist()]

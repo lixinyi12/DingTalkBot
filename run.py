@@ -43,7 +43,15 @@ if __name__ == "__main__":
         datas = get_message()
         try:
             for url, img, info in datas:
-                rsp = requests.get(url=url)
+                # 502 时持续重试直到成功
+                delay = 3
+                while True:
+                    rsp = requests.get(url=url)
+                    if rsp.status_code == 200:
+                        break
+                    print("x6d[{}] status={} ({}s后重试)".format(url, rsp.status_code, delay))
+                    time.sleep(delay)
+                    delay = min(delay * 2, 60)
                 s = etree.HTML(rsp.text)
                 title = s.xpath("//h1[@class='article-title']")[0].text
                 date = s.xpath("//time")[0].xpath('string(.)')
