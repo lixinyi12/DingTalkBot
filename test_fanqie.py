@@ -7,7 +7,7 @@
 不会调用 sent_message，因此不会向钉钉发送任何消息。
 """
 import sys
-from function import get_fanqie_meta, get_fanqie_chapters
+from fanqie import get_fanqie_meta, get_fanqie_chapters
 
 
 def main():

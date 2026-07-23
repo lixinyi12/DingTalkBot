@@ -1,64 +1,16 @@
 # python 3.8
 import time
-import hmac
-import hashlib
-import base64
-import urllib.parse
 import sys
 import requests
-import json
-from function import *
 from lxml import etree
+
+from common.dingtalk import sent_message, sent_markdown
+from common.x6d import get_message
+from bilibili import get_video
+from fanqie import get_fanqie_meta, get_fanqie_chapters
 
 # 检测时间窗口（秒），默认半小时=1800，可在文件顶部统一修改
 WINDOW = 1800
-
-
-def _dingtalk_url(token: str, secret: str) -> str:
-    """构造加签后的钉钉自定义机器人 webhook 地址。"""
-    timestamp = str(round(time.time() * 1000))
-    string_to_sign = '{}\n{}'.format(timestamp, secret)
-    hmac_code = hmac.new(
-        secret.encode('utf-8'),
-        string_to_sign.encode('utf-8'),
-        digestmod=hashlib.sha256).digest()
-    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-    return "https://oapi.dingtalk.com/robot/send?access_token={2}&timestamp={0}&sign={1}".format(
-        timestamp, sign, token)
-
-
-def sent_message(
-        token: str,
-        secret: str,
-        text: str,
-        title: str,
-        picUrl: str,
-        messageUrl: str):
-    url = _dingtalk_url(token, secret)
-    data = {
-        "msgtype": "link",
-        "link": {
-            "text": text,
-            "title": title,
-            "picUrl": picUrl,
-            "messageUrl": messageUrl
-        }
-    }
-    headers = {"Content-Type": "application/json"}
-    rsp = requests.post(url=url, data=json.dumps(data), headers=headers)
-    print(rsp.json().get('errmsg'))
-
-
-def sent_markdown(token: str, secret: str, title: str, md_text: str):
-    """以 markdown 类型发送（用于列表类消息，如选股 Top N）。"""
-    url = _dingtalk_url(token, secret)
-    data = {
-        "msgtype": "markdown",
-        "markdown": {"title": title, "text": md_text}
-    }
-    headers = {"Content-Type": "application/json"}
-    rsp = requests.post(url=url, data=json.dumps(data), headers=headers)
-    print(rsp.json().get('errmsg'))
 
 
 if __name__ == "__main__":
@@ -77,12 +29,14 @@ if __name__ == "__main__":
             fanqie_subscribe = bool(book_ids.strip())  # 空值则跳过番茄
         except BaseException:
             fanqie_subscribe = False
-        try:
-            stock_watchlist = sys.argv[5]
-        except BaseException:
-            stock_watchlist = watchlist  # 来自 config import *，本地默认自选股
-        stock_subscribe = bool((stock_watchlist or "").strip())  # 空值则跳过选股
-        print("log:argv参数数={}（应为4）; 开关 bili={} fanqie={} stock={}".format(
+        # 选股只在「显式传了第5个参数」时跑（即 Stock_daily 的 5 参数调用），
+        # 这样 DingTalk_misson 的 4 参数 cron 不会每 30 分钟误触发选股。
+        if len(sys.argv) > 5:
+            stock_watchlist = (sys.argv[5] or "").strip() or watchlist  # secret 留空则用 config 兜底
+        else:
+            stock_watchlist = ""  # 未传第5参数(含 DingTalk_misson 4参数) -> 不跑
+        stock_subscribe = bool(stock_watchlist.strip())
+        print("log:argv参数数={}; 开关 bili={} fanqie={} stock={}".format(
             len(sys.argv) - 1, bili_subscribe, fanqie_subscribe, stock_subscribe))
         China_stp = int(time.time())  # action获取的系统时间突然变成了utc+8，原因不明
         # 小刀网线报处理

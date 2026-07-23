@@ -12,8 +12,8 @@
 import datetime
 import sys
 
-from function import get_fanqie_chapters, get_fanqie_meta
-from run import sent_message
+from fanqie import get_fanqie_chapters, get_fanqie_meta
+from common.dingtalk import sent_message
 
 
 def main():
