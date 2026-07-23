@@ -138,21 +138,27 @@ def _fetch_fundamentals(codes):
 
 
 def _fetch_valuation(codes):
-    """批量取估值：PE、PB、股票名称。"""
+    """逐只取估值：PE、PB、股票名称。
+    不调批量接口(内部多线程并发易触发反爬)，改为逐只串行请求。"""
     out = {}
     if not codes:
         return out
-    try:
-        df = ef.stock.get_base_info(codes)
-        for _, row in df.iterrows():
-            out[str(row['股票代码'])] = {
-                'pe': _to_float(row.get('市盈率(动)')),
-                'pb': _to_float(row.get('市净率')),
-                'name': row.get('股票名称'),
+    for i, code in enumerate(codes):
+        try:
+            if i > 0:
+                time.sleep(REQUEST_INTERVAL)
+            s = _retry(ef.stock.get_base_info, code, delays=(5, 15))
+            if s is None:
+                print("error valuation[{}]: 重试耗尽".format(code))
+                continue
+            out[str(s['股票代码'])] = {
+                'pe': _to_float(s.get('市盈率(动)')),
+                'pb': _to_float(s.get('市净率')),
+                'name': s.get('股票名称'),
             }
-        print("log:估值取到 {}/{}".format(len(out), len(codes)))
-    except BaseException as e:
-        print("error valuation:", e)
+        except BaseException as e:
+            print("error valuation[{}]: {}".format(code, e))
+    print("log:估值取到 {}/{}".format(len(out), len(codes)))
     return out
 
 
@@ -330,7 +336,7 @@ def get_stock_ranked(codes, top_n=10):
         return []
 
     print("log:候选池股票数：", len(codes))
-    # 批量取基本面 + 估值（各 1 次调用）
+    # 批量取基本面 + 逐只取估值（避免并发触发反爬）
     fund = _fetch_fundamentals(codes)
     time.sleep(REQUEST_INTERVAL)
     val = _fetch_valuation(codes)

@@ -62,8 +62,15 @@ if __name__ == "__main__":
                     print("log:", date, title, info, "\n")
                 else:
                     break
-        except BaseException:
-            print("error \n", rsp.text)
+        except BaseException as e:
+            detail = ""
+            try:
+                rsp  # noqa
+                status = getattr(rsp, 'status_code', '?')
+                detail = " status={} body={}".format(status, rsp.text[:200])
+            except BaseException:
+                detail = " (响应不可用)"
+            print("error x6d[{}]:{}{}".format(url, e, detail))
         # bilibili投稿处理
         if bili_subscribe:
             mid_list = mids.split(',')
