@@ -9,10 +9,10 @@
 
 数据源说明：
     - 主力净流入占比 = 主力净流入额 / 成交额（efinance get_history_bill 已算好百分比）
-    - ROE 取自 get_all_company_performance 的“净资产收益率”（注意：季报口径，
-      可能是 YTD，阈值若普遍打不满请在下方常量处下调）
+    - ROE/营收同比/净利同比 取自最新“年报”的 get_all_company_performance（指定年报期，
+      date=None 只返回当日新公告的票）。ROE 为年度口径，与 15% 阈值匹配
     - PE/PB 取自 get_base_info；负值（亏损）按 0 分处理
-    - 2025/4 起东财对 IP 限流，故每只股票每次请求间隔 REQUEST_INTERVAL 秒
+    - 2025/4 起东财对 IP 限流，故每次请求间隔 REQUEST_INTERVAL 秒 + 失败重试退避
 """
 import time
 import datetime
@@ -20,6 +20,7 @@ import efinance as ef
 
 # —— 节流（规避东财 IP 限流）——
 REQUEST_INTERVAL = 1.2  # 每次请求间隔(秒)
+KLINE_INTERVAL = 3.0    # 日K线请求前的额外间隔（push2his 是限流重灾区，预防式降速）
 
 # —— 评分阈值常量（集中放这里方便后续调参）——
 # 基本面
@@ -79,14 +80,50 @@ def _rsi(closes, period=RSI_PERIOD):
     return round(100 - 100 / (1 + rs), 2)
 
 
+def _retry(fn, *args, delays=(2.4, 3.6), **kwargs):
+    """调用 fn，失败按 delays(秒)逐次退避重试；尝试次数 = len(delays)+1。
+    用于缓解东财偶发的连接重置/限流（尤其日K线接口）。"""
+    delays = list(delays)
+    while True:
+        try:
+            return fn(*args, **kwargs)
+        except BaseException as e:
+            if not delays:
+                print("retry exhausted:", e)
+                return None
+            time.sleep(delays.pop(0))
+
+
+def _latest_annual_report_date():
+    """获取最新一个已披露完的年报报告期（'YYYY-12-31'）。
+    注意：get_all_company_performance(date=None) 只返回当日新公告的少量股票，
+    必须显式指定一个已完成的年报期才能拿到全市场基本面。"""
+    try:
+        dates = ef.stock.get_all_report_dates()
+        annual = sorted(
+            [str(d) for d in dates['报告日期'].tolist() if str(d).endswith('12-31')],
+            reverse=True)
+        if annual:
+            return annual[0]
+    except BaseException as e:
+        print("error report dates:", e)
+    # 兜底：年报须在次年 4 月底前披露完，5 月起方可放心取上一年年报
+    today = datetime.date.today()
+    year = today.year - 1 if today.month >= 5 else today.year - 2
+    return "{}-12-31".format(year)
+
+
 def _fetch_fundamentals(codes):
-    """批量取基本面：营收同比、净利同比、ROE。
-    get_all_company_performance 一次返回全市场最新季报，再过滤候选池。"""
+    """批量取基本面：营收同比、净利同比、ROE（取自最新年报，全市场过滤候选池）。"""
     out = {}
     if not codes:
         return out
+    date = _latest_annual_report_date()
+    print("log:基本面报告期：", date)
     try:
-        df = ef.stock.get_all_company_performance()
+        df = _retry(ef.stock.get_all_company_performance, date)
+        if df is None or len(df) == 0:
+            return out
         df = df[df['股票代码'].astype(str).isin(codes)]
         for _, row in df.iterrows():
             out[str(row['股票代码'])] = {
@@ -122,7 +159,7 @@ def _fetch_valuation(codes):
 def _fetch_capital(code):
     """取资金面：当日主力净流入占比 + 近5日连续净流入天数。"""
     try:
-        df = ef.stock.get_history_bill(code)
+        df = _retry(ef.stock.get_history_bill, code)
         if df is None or len(df) == 0:
             return {}
         df = df.sort_values(by='日期')  # 升序，便于取最近 N 日
@@ -143,10 +180,13 @@ def _fetch_capital(code):
 
 
 def _fetch_technical(code):
-    """取技术面：收盘价、是否站上60日均线、均线方向、RSI14、涨跌幅。"""
+    """取技术面：收盘价、是否站上60日均线、均线方向、RSI14、涨跌幅。
+    日K线接口(push2his)是东财限流重灾区，故调用前留间隔、失败用长退避重试。"""
     try:
+        time.sleep(KLINE_INTERVAL)  # 与上一笔资金面请求拉开间隔，降低被限流概率
         beg = (datetime.date.today() - datetime.timedelta(days=200)).strftime('%Y%m%d')
-        df = ef.stock.get_quote_history(code, beg=beg, klt=101, fqt=1)
+        df = _retry(ef.stock.get_quote_history, code, beg=beg, klt=101, fqt=1,
+                    delays=(5, 12, 20))
         if df is None or len(df) == 0:
             return {}
         closes = [_to_float(x) for x in df['收盘'].tolist()]
@@ -311,9 +351,10 @@ def get_stock_ranked(codes, top_n=10):
             ind['code'] = code
 
             total, breakdown = score(ind)
+            name = str(ind.get('name') or code).replace(' ', '')  # 去掉 efinance 名称里的多余空格
             results.append({
                 'code': code,
-                'name': ind.get('name') or code,
+                'name': name,
                 'total': total,
                 'breakdown': breakdown,
                 'close': ind.get('close'),
