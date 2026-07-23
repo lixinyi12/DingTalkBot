@@ -14,6 +14,19 @@ from lxml import etree
 WINDOW = 1800
 
 
+def _dingtalk_url(token: str, secret: str) -> str:
+    """构造加签后的钉钉自定义机器人 webhook 地址。"""
+    timestamp = str(round(time.time() * 1000))
+    string_to_sign = '{}\n{}'.format(timestamp, secret)
+    hmac_code = hmac.new(
+        secret.encode('utf-8'),
+        string_to_sign.encode('utf-8'),
+        digestmod=hashlib.sha256).digest()
+    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+    return "https://oapi.dingtalk.com/robot/send?access_token={2}&timestamp={0}&sign={1}".format(
+        timestamp, sign, token)
+
+
 def sent_message(
         token: str,
         secret: str,
@@ -21,17 +34,7 @@ def sent_message(
         title: str,
         picUrl: str,
         messageUrl: str):
-    timestamp = str(round(time.time() * 1000))
-    secret_enc = secret.encode('utf-8')
-    string_to_sign = '{}\n{}'.format(timestamp, secret)
-    string_to_sign_enc = string_to_sign.encode('utf-8')
-    hmac_code = hmac.new(
-        secret_enc,
-        string_to_sign_enc,
-        digestmod=hashlib.sha256).digest()
-    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
-    url = "https://oapi.dingtalk.com/robot/send?access_token={2}&timestamp={0}&sign={1}".format(
-        timestamp, sign, token)
+    url = _dingtalk_url(token, secret)
     data = {
         "msgtype": "link",
         "link": {
@@ -42,8 +45,19 @@ def sent_message(
         }
     }
     headers = {"Content-Type": "application/json"}
-    data = json.dumps(data)
-    rsp = requests.post(url=url, data=data, headers=headers)
+    rsp = requests.post(url=url, data=json.dumps(data), headers=headers)
+    print(rsp.json().get('errmsg'))
+
+
+def sent_markdown(token: str, secret: str, title: str, md_text: str):
+    """以 markdown 类型发送（用于列表类消息，如选股 Top N）。"""
+    url = _dingtalk_url(token, secret)
+    data = {
+        "msgtype": "markdown",
+        "markdown": {"title": title, "text": md_text}
+    }
+    headers = {"Content-Type": "application/json"}
+    rsp = requests.post(url=url, data=json.dumps(data), headers=headers)
     print(rsp.json().get('errmsg'))
 
 
@@ -63,6 +77,11 @@ if __name__ == "__main__":
             fanqie_subscribe = bool(book_ids.strip())  # 空值则跳过番茄
         except BaseException:
             fanqie_subscribe = False
+        try:
+            stock_watchlist = sys.argv[5]
+        except BaseException:
+            stock_watchlist = watchlist  # 来自 config import *，本地默认自选股
+        stock_subscribe = bool((stock_watchlist or "").strip())  # 空值则跳过选股
         China_stp = int(time.time())  # action获取的系统时间突然变成了utc+8，原因不明
         # 小刀网线报处理
         datas = get_message()
@@ -95,35 +114,38 @@ if __name__ == "__main__":
             for i in mid_list:
                 if not i.strip():
                     continue
-                video_list = get_video(i)
-                for j in video_list:
-                    ac_time = China_stp - j['created']
-                    if ac_time < WINDOW:
-                        import datetime
-                        dateArray = datetime.datetime.fromtimestamp(
-                            j['created'] + 28800)
-                        otherStyleTime = dateArray.strftime("%m-%d %H:%M:%S")
-                        sent_message(
-                            token=token,
-                            secret=secret,
-                            text=j['author'] +
-                            " " +
-                            otherStyleTime +
-                            "\n" +
-                            j['description'],
-                            title=j['title'],
-                            picUrl="https:{}".format(
-                                j['pic']),
-                            messageUrl="https://www.bilibili.com/video/{}".format(
-                                j['bvid']))
-                        print(
-                            "log:",
-                            j['created'],
-                            j['author'],
-                            j['title'],
-                            "\n")
-                    else:
-                        break
+                try:
+                    video_list = get_video(i)
+                    for j in video_list:
+                        ac_time = China_stp - j['created']
+                        if ac_time < WINDOW:
+                            import datetime
+                            dateArray = datetime.datetime.fromtimestamp(
+                                j['created'] + 28800)
+                            otherStyleTime = dateArray.strftime("%m-%d %H:%M:%S")
+                            sent_message(
+                                token=token,
+                                secret=secret,
+                                text=j['author'] +
+                                " " +
+                                otherStyleTime +
+                                "\n" +
+                                j['description'],
+                                title=j['title'],
+                                picUrl="https:{}".format(
+                                    j['pic']),
+                                messageUrl="https://www.bilibili.com/video/{}".format(
+                                    j['bvid']))
+                            print(
+                                "log:",
+                                j['created'],
+                                j['author'],
+                                j['title'],
+                                "\n")
+                        else:
+                            break
+                except BaseException as e:
+                    print("error bilibili:", i, e)
         else:
             pass
         # 番茄小说更新处理
@@ -161,5 +183,19 @@ if __name__ == "__main__":
                             break
                 except BaseException:
                     print("error fanqie:", book_id, "\n")
-    except BaseException:
-        print('secret loss')
+        # 东方财富选股评分推送（每日收盘后）
+        if stock_subscribe:
+            try:
+                from stock import get_stock_ranked, format_markdown
+                codes = [c for c in stock_watchlist.split(',') if c.strip()]
+                print("log:开始选股评分，候选数：", len(codes))
+                ranked = get_stock_ranked(codes, top_n=10)
+                md_text = format_markdown(ranked)
+                sent_markdown(token, secret, "📈 每日选股Top{}".format(len(ranked)), md_text)
+                print("log:选股推送完成，共推送{}只".format(len(ranked)))
+            except BaseException as e:
+                print("error stock push:", e)
+    except BaseException as e:
+        import traceback
+        print('secret loss / 顶层异常:', e)
+        traceback.print_exc()

@@ -1,0 +1,25 @@
+# 每日选股评分推送到钉钉（独立于 DingTalk_misson，只在收盘后跑一次）
+name: Stock_daily
+
+on:
+  schedule:
+    - cron: "30 8 * * 1-5"   # UTC 08:30 = 北京 16:30，工作日每天收盘后
+  workflow_dispatch:         # 允许手动触发，方便首次测试
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python 3.8
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.8
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install requests lxml efinance
+    - name: Run stock mission
+      run: |
+        # 第 3、4 参数置空 -> bilibili / 番茄块自动跳过；第 5 参数为自选股池
+        python run.py "${{ secrets.token }}" "${{ secrets.secret }}" "" "" "${{ secrets.watchlist }}"
