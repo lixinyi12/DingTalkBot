@@ -43,13 +43,15 @@ if __name__ == "__main__":
         datas = get_message()
         try:
             for url, img, info in datas:
-                # 502 时持续重试直到成功
+                # 502 时重试最多5次
                 delay = 3
-                while True:
+                for attempt in range(5):
                     rsp = requests.get(url=url)
                     if rsp.status_code == 200:
                         break
-                    print("x6d[{}] status={} ({}s后重试)".format(url, rsp.status_code, delay))
+                    if attempt == 4:
+                        raise Exception("x6d[{}] 重试耗尽 status={}".format(url, rsp.status_code))
+                    print("x6d[{}] status={} ({}s后重试, {}/{})".format(url, rsp.status_code, delay, attempt + 1, 5))
                     time.sleep(delay)
                     delay = min(delay * 2, 60)
                 s = etree.HTML(rsp.text)

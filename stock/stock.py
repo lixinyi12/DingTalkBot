@@ -80,14 +80,17 @@ def _rsi(closes, period=RSI_PERIOD):
     return round(100 - 100 / (1 + rs), 2)
 
 
-def _retry_until_ok(fn, *args, initial_delay=3, max_delay=60, **kwargs):
-    """持续重试直到成功，指数退避。用于应对上游 502/连接断开。"""
+def _retry_until_ok(fn, *args, initial_delay=3, max_delay=60, max_retries=5, **kwargs):
+    """持续重试直到成功，指数退避。用于应对上游 502/连接断开。
+    max_retries 次后仍失败则抛出异常，由上层跳过该股。"""
     delay = initial_delay
-    while True:
+    for attempt in range(max_retries):
         try:
             return fn(*args, **kwargs)
         except BaseException as e:
-            print("retry: {} ({}s后重试)".format(e, delay))
+            if attempt == max_retries - 1:
+                raise
+            print("retry: {} ({}s后重试, {}/{})".format(e, delay, attempt + 1, max_retries))
             time.sleep(delay)
             delay = min(delay * 2, max_delay)
 
