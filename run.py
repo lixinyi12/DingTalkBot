@@ -59,7 +59,7 @@ if __name__ == "__main__":
                 timestamp = time.mktime(timeArray)
                 ac_time = China_stp - timestamp + 28800
                 # 默认时间频率为两小时，可在文件顶部 WINDOW 处统一修改。
-                if ac_time < WINDOW:
+                if ac_time < WINDOW + 900:
                     sent_message(
                         token=token,
                         secret=secret,
